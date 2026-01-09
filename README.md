@@ -1,4 +1,4 @@
-# ORB-SLAM3-STEREO-FIXED
+# Dense-ORB-SLAM3
 
 This repository is a modified version of [ORB_SLAM3](https://github.com/UZ-SLAMLab/ORB_SLAM3)  
 
@@ -27,6 +27,8 @@ This will create **libORB_SLAM3.so**  at *lib* folder and the executables in *Ex
 ## Note
 - 本项目引入了稠密建图的功能，目前仅能使用的例程是rgbd_tum_dense.cc，启动指令为：
 ```
+cd ~/orb_slam3/Examples/RGB-D
+
 ./rgbd_tum_dense --tum ~/orb_slam3/dataset/TUM-RGBD/rgbd_dataset_freiburg1_xyz:/home/ricky/orb_slam3/Examples/RGB-D/associations/fr1_xyz.txt --voc /home/ricky/orb_slam3/Vocabulary/ORBvoc.txt --param /home/ricky/orb_slam3/Examples/RGB-D/TUM1.yaml
 
 ```
