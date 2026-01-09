@@ -1,0 +1,21 @@
+{
+    "configurations": [
+        {
+            "name": "Linux",
+            "includePath": [
+                "${workspaceFolder}/**",
+                "/usr/include/eigen3",            // Eigen3 路径（你的输出）
+                "/usr/local/include/opencv4",     // OpenCV4 路径（你的输出）
+                "/usr/local/include",             // Pangolin 等库路径（你的输出）
+                "/home/ricky/orb_slam3/include",  // ORB-SLAM3 自身头文件（你的输出）
+                "/usr/include"                    // 系统默认头文件（兜底）
+            ],
+            "defines": [],
+            "compilerPath": "/usr/bin/gcc",
+            "cStandard": "c17",
+            "cppStandard": "gnu++17",
+            "intelliSenseMode": "linux-gcc-x64"
+        }
+    ],
+    "version": 4
+}

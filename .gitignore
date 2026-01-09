@@ -1,0 +1,25 @@
+# 核心必排除 - 编译产物 最大头！
+build/
+
+# 核心必排除 - 第三方库源码 opencv/pangolin等 体积超大！
+3rdparty/
+
+# 必排除 - python虚拟环境 本地专属！
+venv/
+
+# 必排除 - 运行产生的轨迹结果文件 本地日志！
+CameraTrajectory.txt
+KeyFrameTrajectory.txt
+
+# 必排除 - 数据集目录 几个G的大小 绝对不传！
+dataset/
+
+# 可选排除 - 旧示例代码 用不到就排除 更干净
+Examples_old/
+
+# 系统临时文件 无需上传
+*.swp
+*.swo
+*~
+.DS_Store
+Vocabulary/ORBvoc.txt
