@@ -24,6 +24,15 @@ cd build
 cmake .. -DCMAKE_BUILD_TYPE=Release
 make -j
 
+cd ../../elas
+
+echo "Configuring and building Thirdparty/elas ..."
+
+mkdir build
+cd build
+cmake .. -DCMAKE_BUILD_TYPE=Release
+make -j
+
 cd ../../../
 
 echo "Uncompress vocabulary ..."
