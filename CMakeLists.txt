@@ -8,7 +8,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)        # 禁用编译器扩展，保证兼容性
 
 # ========== 新增：本地PCL配置（核心） ==========
 # 1. 本地PCL安装根目录（适配你的实际路径）
-set(PCL_INSTALL_DIR /home/ricky/orb_slam3/3rdparty/pcl/pcl_install)
+set(PCL_INSTALL_DIR /home/ricky/WCR_ws/dense_orbslam3/3rdParty/pcl/pcl_install)
 
 # 2. PCL头文件路径（必须包含pcl-1.15子目录）
 set(PCL_INCLUDE_DIRS
