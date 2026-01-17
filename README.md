@@ -2,33 +2,37 @@
 
 This repository is a modified version of [ORB_SLAM3](https://github.com/UZ-SLAMLab/ORB_SLAM3)  
 
+If you want to wrap this project with ROS2, please check [ORB-SLAM3-STEREO-FIXED](https://github.com/zang09/ORB-SLAM3-STEREO-FIXED.git)
+
 --- 
 
 ## Modification
-- Succesfully tested in **Ubuntu 20.04** and **ROS2 Foxy**(with OpenCV 4.2.0)
-- Update from C++11 to C++14
-- Fixed unexpected <span style="color:red">error</span> when start **STEREO** mode with **Rectified** camera type  
+- Succesfully tested in **Ubuntu 24.04** and **ROS2 Jazzy**(with OpenCV 4.9.0)
+- Update from C++11 to C++17
+**Rectified** camera type  
 
 ## How to build
 Clone the repository:
 ```
-git clone https://github.com/zang09/ORB-SLAM3-STEREO-FIXED.git ORB_SLAM3
+git clone https://github.com/Pplll-pppl/Dense_OrbSlam3.git dense_orbslam3
 ```
 
-Install same required dependencies as original version. Then,  
-Execute:
+Install same required dependencies as original version ([ORB_SLAM3](https://github.com/UZ-SLAMLab/ORB_SLAM3) / [ORB-SLAM3-STEREO-FIXED](https://github.com/zang09/ORB-SLAM3-STEREO-FIXED.git)). 
+Additionally, PCL 1.10 is required to generate dense point cloud. You can install it in the same path of OpenCV and Pangolin.
+Then,  Execute:
 ```
-cd ORB_SLAM3
+cd path_to_your_ws/dense_orbslam3
 chmod +x build.sh
 ./build.sh
 ```
 This will create **libORB_SLAM3.so**  at *lib* folder and the executables in *Examples* folder.
 
 ## Note
-- 本项目引入了稠密建图的功能，目前仅能使用的例程是rgbd_tum_dense.cc，启动指令为：
+- This project integrate dense mapping function. Currently, only **rgbd_tum_dense.cc** is available.
+To run the dense mapping example, execute:
 ```
-cd ~/orb_slam3/Examples/RGB-D
+cd ~/dense_orbslam3/Examples/RGB-D ## change to your ws path
 
-./rgbd_tum_dense --tum ~/orb_slam3/dataset/TUM-RGBD/rgbd_dataset_freiburg1_xyz:/home/ricky/orb_slam3/Examples/RGB-D/associations/fr1_xyz.txt --voc /home/ricky/orb_slam3/Vocabulary/ORBvoc.txt --param /home/ricky/orb_slam3/Examples/RGB-D/TUM1.yaml
+./rgbd_tum_dense --tum ~/dense_orbslam3/dataset/TUM-RGBD/rgbd_dataset_freiburg1_room:/home/ricky/dense_orbslam3/Examples/RGB-D/associations/fr1_room.txt --voc /home/ricky/dense_orbslam3/Vocabulary/ORBvoc.txt --param /home/ricky/dense_orbslam3/Examples/RGB-D/TUM1.yaml ## change to your ws path
 
 ```
