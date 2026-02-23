@@ -7,52 +7,49 @@ File.version: "1.0"
 
 Camera.type: "PinHole"
 
-# Right Camera calibration and distortion parameters (OpenCV)
-Camera1.fx: 617.201
-Camera1.fy: 617.362
-Camera1.cx: 324.637
-Camera1.cy: 242.462
+# 你的D435IF相机内参（Kalibr标定结果，848x480分辨率）
+Camera1.fx: 423.81467986
+Camera1.fy: 424.93565279
+Camera1.cx: 432.46347429
+Camera1.cy: 244.00078159
 
+# 畸变参数（Kalibr标定结果，接近0，和出厂一致）
+Camera1.k1: 0.0028841
+Camera1.k2: 0.00015453
+Camera1.p1: -0.0000121
+Camera1.p2: 0.00333204
 
-# distortion parameters
-Camera1.k1: 0.0
-Camera1.k2: 0.0
-Camera1.p1: 0.0
-Camera1.p2: 0.0
-
-# Camera resolution
-Camera.width: 640
+# Camera resolution（D435IF采集时用的848x480，必须和实际图像一致）
+Camera.width: 848
 Camera.height: 480
 
-# Camera frames per second 
+# Camera frames per second（D435IF Color相机最高30fps，和采集一致）
 Camera.fps: 30
 
-# Color order of the images (0: BGR, 1: RGB. It is ignored if images are grayscale)
+# Color order of the images (0: BGR, 1: RGB. RealSense输出RGB，保持1)
 Camera.RGB: 1
 
-# Close/Far threshold. Baseline times.
+# Close/Far threshold. Baseline times.（双目基线阈值，单目用不到，保持默认）
 Stereo.ThDepth: 40.0
-Stereo.b: 0.0745
+# 双目基线长度（D435IF基线约0.05m，单目用不到，可填0或实际值）
+Stereo.b: 0.05
 
-# Depth map values factor
+# Depth map values factor（RGBD深度值缩放因子，单目用不到，保持默认）
 RGBD.DepthMapFactor: 1000.0
 
 #--------------------------------------------------------------------------------------------
 # ORB Parameters
 #--------------------------------------------------------------------------------------------
-# ORB Extractor: Number of features per image
-ORBextractor.nFeatures: 1250
+# ORB Extractor: Number of features per image（848x480分辨率建议800-1200）
+ORBextractor.nFeatures: 1000
 
-# ORB Extractor: Scale factor between levels in the scale pyramid 	
+# ORB Extractor: Scale factor between levels in the scale pyramid （默认1.2，无需改）
 ORBextractor.scaleFactor: 1.2
 
-# ORB Extractor: Number of levels in the scale pyramid	
+# ORB Extractor: Number of levels in the scale pyramid（默认8，无需改）
 ORBextractor.nLevels: 8
 
-# ORB Extractor: Fast threshold
-# Image is divided in a grid. At each cell FAST are extracted imposing a minimum response.
-# Firstly we impose iniThFAST. If no corners are detected we impose a lower value minThFAST
-# You can lower these values if your images have low contrast			
+# ORB Extractor: Fast threshold（对比度正常场景保持默认，低对比度可降低）
 ORBextractor.iniThFAST: 20
 ORBextractor.minThFAST: 7
 
