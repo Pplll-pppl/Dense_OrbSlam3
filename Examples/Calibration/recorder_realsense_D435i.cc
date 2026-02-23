@@ -130,12 +130,14 @@ int main(int argc, char **argv) {
                 sensor.set_option(RS2_OPTION_ENABLE_AUTO_EXPOSURE, 1);
                 sensor.set_option(RS2_OPTION_AUTO_EXPOSURE_LIMIT,5000);
                 sensor.set_option(RS2_OPTION_EMITTER_ENABLED, 0);
+                sensor.set_option(RS2_OPTION_GLOBAL_TIME_ENABLED, 1); //这让时间戳更精确、同步（RealSense 硬件时钟）
+                sensor.set_option(RS2_OPTION_LASER_POWER, 0); //// 加这一行，功率设0更保险
             }
             // std::cout << "  " << index << " : " << sensor.get_info(RS2_CAMERA_INFO_NAME) << std::endl;
             get_sensor_option(sensor);
             if (index == 2){
                 // RGB camera
-                sensor.set_option(RS2_OPTION_EXPOSURE,100.f);
+                sensor.set_option(RS2_OPTION_ENABLE_AUTO_EXPOSURE, 1);  // 开启自动曝光
             }
 
             if (index == 3){
@@ -148,7 +150,8 @@ int main(int argc, char **argv) {
     rs2::pipeline pipe;
     // Create a configuration for configuring the pipeline with a non default profile
     rs2::config cfg;
-    cfg.enable_stream(RS2_STREAM_INFRARED, 1, 640, 480, RS2_FORMAT_Y8, 30);
+    cfg.enable_stream(RS2_STREAM_INFRARED, 1, 848, 480, RS2_FORMAT_Y8, 15);
+    // cfg.enable_stream(RS2_STREAM_COLOR, 1280, 720, RS2_FORMAT_BGR8, 15);
     cfg.enable_stream(RS2_STREAM_ACCEL, RS2_FORMAT_MOTION_XYZ32F); //, 250); // 63
     cfg.enable_stream(RS2_STREAM_GYRO, RS2_FORMAT_MOTION_XYZ32F); //, 400);
 
@@ -173,6 +176,9 @@ int main(int argc, char **argv) {
 
         if(rs2::frameset fs = frame.as<rs2::frameset>())
         {
+            std::cout << "Received IR frame! timestamp: " << fs.get_timestamp() << std::endl;
+
+            // rs2::video_frame color_frame = fs.get_color_frame();
             rs2::video_frame color_frame = fs.get_infrared_frame();
             imCV = cv::Mat(cv::Size(width_img, height_img), CV_8U, (void*)(color_frame.get_data()), cv::Mat::AUTO_STEP);
 
@@ -192,6 +198,7 @@ int main(int argc, char **argv) {
             }
             else if (m_frame.get_profile().stream_name() == "Accel")
             {
+                std::cout << "Received IMU: " << m_frame.get_profile().stream_name() << std::endl;
                 // It runs at 60Hz
                 v_acc_data.push_back(m_frame.get_motion_data());
                 v_acc_timestamp.push_back((m_frame.get_timestamp()+offset)*1e-3);
@@ -200,7 +207,12 @@ int main(int argc, char **argv) {
     };
 
     rs2::pipeline_profile pipe_profile = pipe.start(cfg, imu_callback);
+
+    std::cout << "Pipeline 已啟動，現在開始等待第一張影像幀..." << std::endl;
+    std::cout << "如果這裡一直不往下跑，表示 IR stream 沒有產生 frame" << std::endl;
+
     rs2::stream_profile cam_stream = pipe_profile.get_stream(RS2_STREAM_INFRARED, 1);
+    // rs2::stream_profile cam_stream = pipe_profile.get_stream(RS2_STREAM_COLOR);
     rs2::stream_profile imu_stream = pipe_profile.get_stream(RS2_STREAM_GYRO);
 
     rs2_intrinsics intrinsics_cam = cam_stream.as<rs2::video_stream_profile>().get_intrinsics();
@@ -222,6 +234,8 @@ int main(int argc, char **argv) {
     cv::namedWindow("cam0",cv::WINDOW_AUTOSIZE);
 
     while (b_continue_session){
+        
+        std::cout << "進入主迴圈，正在等待 image_ready 條件..." << std::endl;
         std::vector<rs2_vector> vGyro;
         std::vector<double> vGyro_times;
         std::vector<rs2_vector> vAccel, vAccel_Sync;
