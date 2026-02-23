@@ -6,6 +6,24 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)  # 强制C++17，不兼容则报错
 set(CMAKE_CXX_EXTENSIONS OFF)        # 禁用编译器扩展，保证兼容性
 
+# ========== 新增：fastcdr/fastrtps 路径配置（解决realsense2依赖） ==========
+# 1. 指定fastcdr/fastrtps的头文件路径（Ubuntu 24.04默认安装路径）
+set(FASTCDR_INCLUDE_DIR /usr/include/fastcdr)
+set(FastRTPS_INCLUDE_DIR /usr/include/fastrtps)
+include_directories(
+    ${FASTCDR_INCLUDE_DIR}
+    ${FastRTPS_INCLUDE_DIR}
+)
+
+# 2. 指定fastcdr/fastrtps的库路径（Ubuntu 24.04默认安装路径）
+set(FastRTPS_LIBRARY_DIR /usr/lib/x86_64-linux-gnu)
+link_directories(${FastRTPS_LIBRARY_DIR})
+
+# 3. 显式导入fastcdr/fastrtps的库目标（关键：让realsense2的CMake配置感知到）
+find_library(FASTCDR_LIB fastcdr PATHS ${FastRTPS_LIBRARY_DIR} REQUIRED)
+find_library(FastRTPS_LIB fastrtps PATHS ${FastRTPS_LIBRARY_DIR} REQUIRED)
+
+
 # ========== 新增：本地PCL配置（核心） ==========
 # 1. 本地PCL安装根目录（适配你的实际路径）
 set(PCL_INSTALL_DIR /home/ricky/WCR_ws/dense_orbslam3/3rdParty/pcl/pcl_install)
@@ -34,6 +52,8 @@ set(PCL_LIBRARIES
     pcl_io
     pcl_kdtree
     pcl_search
+    pcl_segmentation          # ✅ 必须加：解决SACSegmentation核心依赖
+    pcl_sample_consensus      # ✅ 必须加：SAC分割的采样一致性算法底层库
     # PCL依赖的系统库
     pthread
     atomic
@@ -107,7 +127,22 @@ endif()
 link_directories(/usr/lib/x86_64-linux-gnu/)  
 set(PYTHON_LIB /usr/lib/x86_64-linux-gnu/libpython3.12.so.1.0)
 
-find_package(realsense2)
+# ========== 修改2：重写realsense2查找逻辑（核心解决warning） ==========
+# 方案1：先查找realsense2，若未找到则手动配置（跳过其自带检测）
+# find_package(realsense2)
+find_package(realsense2 QUIET)
+if(NOT realsense2_FOUND)
+    # 手动指定realsense2的路径（Ubuntu 24.04默认安装路径）
+    set(realsense2_INCLUDE_DIR /usr/include)
+    set(realsense2_LIBRARY /usr/lib/x86_64-linux-gnu/librealsense2.so)
+    # 强制标记为找到
+    set(realsense2_FOUND TRUE)
+    message(STATUS "Manually configured realsense2 (bypassed FastRTPS check)")
+endif()
+
+# 手动添加realsense2头文件路径
+include_directories(${realsense2_INCLUDE_DIR})
+# =====================================================================
 
 include_directories(
 ${PROJECT_SOURCE_DIR}
@@ -149,6 +184,10 @@ ${PROJECT_SOURCE_DIR}/Thirdparty/g2o/lib/libg2o.so
 elas
 -lboost_serialization
 -lcrypto
+# ========== 修改3：显式链接fastcdr/fastrtps + realsense2 ==========
+${FASTCDR_LIB}
+${FastRTPS_LIB}
+${realsense2_LIBRARY}
 )
 
 # If RealSense SDK is found the library is added and its examples compiled
@@ -186,13 +225,30 @@ target_link_libraries(rgbd_tum_dense
     ${Boost_FILESYSTEM_LIBRARY}
     ${Boost_SYSTEM_LIBRARY}
 )
+# ========== 新增：点云旋转程序 rotate_pcd (无可视化，纯旋转保存) ==========
+add_executable(rotate_pcd
+    Examples/RGB-D/rotate_pcd.cc
+)
+target_link_libraries(rotate_pcd
+    ${PROJECT_NAME}
+    ${PCL_LIBRARIES}
+    ${EIGEN3_LIBS}
+)
+# ========== 新增：点云程序 room_size_calc (无可视化，纯旋转保存) ==========
+add_executable(room_size_calc
+    Examples/RGB-D/room_size_calc.cc
+)
+target_link_libraries(room_size_calc
+    ${PROJECT_NAME}
+    ${PCL_LIBRARIES}
+    ${EIGEN3_LIBS}
+)
 
 if(realsense2_FOUND)
     add_executable(rgbd_realsense_D435i
             Examples/RGB-D/rgbd_realsense_D435i.cc)
     target_link_libraries(rgbd_realsense_D435i ${PROJECT_NAME})
 endif()
-
 
 # RGB-D inertial examples
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/Examples/RGB-D-Inertial)
@@ -310,123 +366,3 @@ if(realsense2_FOUND)
     target_link_libraries(recorder_realsense_T265 ${PROJECT_NAME})
 endif()
 
-#Old examples
-
-# # RGB-D examples
-# set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/Examples_old/RGB-D)
-
-# add_executable(rgbd_tum_old
-#         Examples_old/RGB-D/rgbd_tum.cc)
-# target_link_libraries(rgbd_tum_old ${PROJECT_NAME})
-
-# if(realsense2_FOUND)
-#     add_executable(rgbd_realsense_D435i_old
-#             Examples_old/RGB-D/rgbd_realsense_D435i.cc)
-#     target_link_libraries(rgbd_realsense_D435i_old ${PROJECT_NAME})
-# endif()
-
-
-# # RGB-D inertial examples
-# set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/Examples_old/RGB-D-Inertial)
-
-# if(realsense2_FOUND)
-#     add_executable(rgbd_inertial_realsense_D435i_old
-#             Examples_old/RGB-D-Inertial/rgbd_inertial_realsense_D435i.cc)
-#     target_link_libraries(rgbd_inertial_realsense_D435i_old ${PROJECT_NAME})
-# endif()
-
-# #Stereo examples
-# set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/Examples_old/Stereo)
-
-# add_executable(stereo_kitti_old
-#         Examples_old/Stereo/stereo_kitti.cc)
-# target_link_libraries(stereo_kitti_old ${PROJECT_NAME})
-
-# add_executable(stereo_euroc_old
-#         Examples_old/Stereo/stereo_euroc.cc)
-# target_link_libraries(stereo_euroc_old ${PROJECT_NAME})
-
-# add_executable(stereo_tum_vi_old
-#         Examples_old/Stereo/stereo_tum_vi.cc)
-# target_link_libraries(stereo_tum_vi_old ${PROJECT_NAME})
-
-# if(realsense2_FOUND)
-#     add_executable(stereo_realsense_t265_old
-#             Examples_old/Stereo/stereo_realsense_t265.cc)
-#     target_link_libraries(stereo_realsense_t265_old ${PROJECT_NAME})
-
-#     add_executable(stereo_realsense_D435i_old
-#             Examples_old/Stereo/stereo_realsense_D435i.cc)
-#     target_link_libraries(stereo_realsense_D435i_old ${PROJECT_NAME})
-# endif()
-
-# #Monocular examples
-# set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/Examples_old/Monocular)
-
-# add_executable(mono_tum_old
-#         Examples_old/Monocular/mono_tum.cc)
-# target_link_libraries(mono_tum_old ${PROJECT_NAME})
-
-# add_executable(mono_kitti_old
-#         Examples_old/Monocular/mono_kitti.cc)
-# target_link_libraries(mono_kitti_old ${PROJECT_NAME})
-
-# add_executable(mono_euroc_old
-#         Examples_old/Monocular/mono_euroc.cc)
-# target_link_libraries(mono_euroc_old ${PROJECT_NAME})
-
-# add_executable(mono_tum_vi_old
-#         Examples_old/Monocular/mono_tum_vi.cc)
-# target_link_libraries(mono_tum_vi_old ${PROJECT_NAME})
-
-# if(realsense2_FOUND)
-#     add_executable(mono_realsense_t265_old
-#             Examples_old/Monocular/mono_realsense_t265.cc)
-#     target_link_libraries(mono_realsense_t265_old ${PROJECT_NAME})
-
-#     add_executable(mono_realsense_D435i_old
-#             Examples_old/Monocular/mono_realsense_D435i.cc)
-#     target_link_libraries(mono_realsense_D435i_old ${PROJECT_NAME})
-# endif()
-
-# #Monocular inertial examples
-# set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/Examples_old/Monocular-Inertial)
-
-# add_executable(mono_inertial_euroc_old
-#         Examples_old/Monocular-Inertial/mono_inertial_euroc.cc)
-# target_link_libraries(mono_inertial_euroc_old ${PROJECT_NAME})
-
-# add_executable(mono_inertial_tum_vi_old
-#         Examples_old/Monocular-Inertial/mono_inertial_tum_vi.cc)
-# target_link_libraries(mono_inertial_tum_vi_old ${PROJECT_NAME})
-
-# if(realsense2_FOUND)
-#     add_executable(mono_inertial_realsense_t265_old
-#             Examples_old/Monocular-Inertial/mono_inertial_realsense_t265.cc)
-#     target_link_libraries(mono_inertial_realsense_t265_old ${PROJECT_NAME})
-
-#     add_executable(mono_inertial_realsense_D435i_old
-#             Examples_old/Monocular-Inertial/mono_inertial_realsense_D435i.cc)
-#     target_link_libraries(mono_inertial_realsense_D435i_old ${PROJECT_NAME})
-# endif()
-
-# #Stereo Inertial examples
-# set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/Examples_old/Stereo-Inertial)
-
-# add_executable(stereo_inertial_euroc_old
-#         Examples_old/Stereo-Inertial/stereo_inertial_euroc.cc)
-# target_link_libraries(stereo_inertial_euroc_old ${PROJECT_NAME})
-
-# add_executable(stereo_inertial_tum_vi_old
-#         Examples_old/Stereo-Inertial/stereo_inertial_tum_vi.cc)
-# target_link_libraries(stereo_inertial_tum_vi_old ${PROJECT_NAME})
-
-# if(realsense2_FOUND)
-#     add_executable(stereo_inertial_realsense_t265_old
-#             Examples_old/Stereo-Inertial/stereo_inertial_realsense_t265.cc)
-#     target_link_libraries(stereo_inertial_realsense_t265_old ${PROJECT_NAME})
-
-#     add_executable(stereo_inertial_realsense_D435i_old
-#             Examples_old/Stereo-Inertial/stereo_inertial_realsense_D435i.cc)
-#     target_link_libraries(stereo_inertial_realsense_D435i_old ${PROJECT_NAME})
-# endif()
