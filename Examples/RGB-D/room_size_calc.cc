@@ -10,15 +10,14 @@
 #include <pcl/point_types.h>
 #include <pcl/filters/voxel_grid.h>
 #include <pcl/filters/statistical_outlier_removal.h>
+#include <pcl/filters/radius_outlier_removal.h>
 #include <pcl/sample_consensus/method_types.h>
 #include <pcl/sample_consensus/model_types.h>
 #include <pcl/surface/concave_hull.h>           // Alpha shape 轮廓提取
+#include <pcl/kdtree/kdtree_flann.h>
 #include <Eigen/Core>
 #include <Eigen/Geometry>
-#include <Eigen/Eigenvalues>
-#include <array>
-#include <pcl/kdtree/kdtree_flann.h>
-
+#include <Eigen/Dense>      // 用于解线性方程组
 
 // 类型定义
 typedef pcl::PointXYZ PointT;
@@ -35,13 +34,15 @@ struct PlaneInfo
 };
 
 // ===================== 全局配置参数 =====================
-const std::string PCD_PATH = "/home/ricky/WCR_ws/dense_orbslam3/Examples/RGB-D/PointCloudMapping_RGBD_rotated.pcd";
-const float DOWNSAMPLE_VOXEL_SIZE = 0.01f;      // 下采样体素大小
-const float RANSAC_DIST_THRESHOLD = 0.1f;     // 平面拟合距离阈值
+const std::string PCD_PATH = "/home/ricky/WCR_ws/dense_orbslam3/Examples/RGB-D/PointCloudMapping_RGBD_room.pcd";
+// const float DOWNSAMPLE_VOXEL_SIZE = 0.01f;      // 下采样体素大小
+const float DOWNSAMPLE_VOXEL_SIZE = 0.02f;      // 下采样体素大小
+
+const float RANSAC_DIST_THRESHOLD = 0.1f;       // 平面拟合距离阈值
 const int RANSAC_MAX_ITER = 100000;
 const int FIT_PLANE_NUM = 100;                  // 拟合平面数量
-const int MIN_PLANE_POINTS = 10;             // 最小平面点数（轮廓点云较小，可降低）
-const float ALPHA_FACTOR = 30.0;                         // Alpha shape 参数（需根据点云密度调整）
+const int MIN_PLANE_POINTS = 20;                 // 最小平面点数
+const float ALPHA_FACTOR = 60.0;                 // Alpha shape 参数因子
 
 // ---------------------- 1. 计算平面的基本统计信息（均值） ----------------------
 void calculatePlaneBasicStats(PlaneInfo& plane)
@@ -62,13 +63,9 @@ PointCloudT::Ptr loadAndPreprocessCloud(const std::string& path)
 {
     PointCloudT::Ptr cloud(new PointCloudT);
     if (path.substr(path.find_last_of(".") + 1) == "pcd")
-    {
         pcl::io::loadPCDFile<PointT>(path, *cloud);
-    }
     else if (path.substr(path.find_last_of(".") + 1) == "ply")
-    {
         pcl::io::loadPLYFile<PointT>(path, *cloud);
-    }
     std::cout << "原始点云数量: " << cloud->size() << std::endl;
 
     PointCloudT::Ptr cloud_down(new PointCloudT);
@@ -81,13 +78,23 @@ PointCloudT::Ptr loadAndPreprocessCloud(const std::string& path)
     pcl::StatisticalOutlierRemoval<PointT> sor;
     sor.setInputCloud(cloud_down);
     sor.setMeanK(20);
-    sor.setStddevMulThresh(2.5);
+    sor.setStddevMulThresh(2);
     sor.filter(*cloud_clean);
 
+    PointCloudT::Ptr cloud_clean2(new PointCloudT);
+    pcl::RadiusOutlierRemoval<PointT> ror;
+    ror.setInputCloud(cloud_clean);
+    ror.setRadiusSearch(0.05);          // 搜索半径，根据你的点云尺度调整（很重要！）
+    ror.setMinNeighborsInRadius(15);    // 半径内至少要有多少邻居才保留，建议10~30
+    ror.setKeepOrganized(false);
+    ror.filter(*cloud_clean2);
+
+    std::cout << "RadiusOutlierRemoval 后点数: " << cloud_clean2->size() << std::endl;
     std::cout << "预处理后点云数量: " << cloud_clean->size() << std::endl;
-    return cloud_clean;
+    return cloud_clean2;
 }
 
+// 计算平均点间距（用于自适应alpha）
 float computeAverageSpacing(PointCloudT::Ptr cloud, int k = 2, int sample_ratio = 10) {
     pcl::KdTreeFLANN<PointT> kdtree;
     kdtree.setInputCloud(cloud);
@@ -98,8 +105,7 @@ float computeAverageSpacing(PointCloudT::Ptr cloud, int k = 2, int sample_ratio 
     for (size_t i = 0; i < cloud->size(); i += sample_ratio) {
         PointT query = cloud->points[i];
         if (kdtree.nearestKSearch(query, k, indices, sq_dist) == k) {
-            // 第一个是自身，取第二个的距离
-            distances.push_back(std::sqrt(sq_dist[1]));
+            distances.push_back(std::sqrt(sq_dist[1])); // 第一个是自身，取第二个的距离
         }
     }
     float sum = std::accumulate(distances.begin(), distances.end(), 0.0f);
@@ -113,7 +119,7 @@ PointCloudT::Ptr extractConcaveHull(PointCloudT::Ptr& cloud, double alpha)
     pcl::ConcaveHull<PointT> chull;
     chull.setInputCloud(cloud);
     chull.setAlpha(alpha);
-    chull.setDimension(3);          // 三维轮廓，保留所有坐标
+    chull.setDimension(3);
     chull.reconstruct(*hull_points);
     std::cout << "轮廓点云数量: " << hull_points->size() << std::endl;
     return hull_points;
@@ -155,8 +161,8 @@ std::vector<PlaneInfo> fitFixedNumPlanes(PointCloudT::Ptr& cloud)
         plane.inlier_cloud = plane_cloud;
         plane.point_num = plane_cloud->size();
 
-        // 转换点云为Eigen格式
-        for (const auto& p : *plane_cloud) plane.points.emplace_back(p.x, p.y, p.z);
+        for (const auto& p : *plane_cloud)
+            plane.points.emplace_back(p.x, p.y, p.z);
         calculatePlaneBasicStats(plane);
 
         planes.push_back(plane);
@@ -185,80 +191,61 @@ std::array<Eigen::Vector3f, 3> estimatePrincipalAxes(const std::vector<Eigen::Ve
     Eigen::Vector3f eigenvalues = solver.eigenvalues();          // 升序排列
     Eigen::Matrix3f eigenvectors = solver.eigenvectors();        // 对应升序特征值的特征向量
 
-    // 将特征向量按特征值降序排列
     std::array<Eigen::Vector3f, 3> axes;
     axes[0] = eigenvectors.col(2);   // 最大特征值对应的特征向量
     axes[1] = eigenvectors.col(1);
     axes[2] = eigenvectors.col(0);
 
-    // 确保三个轴构成右手系（可选）
+    // 确保三个轴构成右手系
     if (axes[0].cross(axes[1]).dot(axes[2]) < 0)
         axes[2] = -axes[2];
+
+    for (int i = 0; i < 3; ++i)
+        std::cout << "主轴" << i << "：" << axes[i].transpose() << std::endl;
 
     return axes;
 }
 
-// ---------------------- 6. 核心：基于主轴的平面分类与极端平面筛选 ----------------------
-void filterRoomPlanes(const std::vector<PlaneInfo>& allPlanes,
-                      const std::array<Eigen::Vector3f, 3>& axes,
-                      int& vertical_axis, int& horz_axis1, int& horz_axis2,
-                      PlaneInfo& ground, PlaneInfo& ceiling,
-                      PlaneInfo& wall_min1, PlaneInfo& wall_max1,
-                      PlaneInfo& wall_min2, PlaneInfo& wall_max2)
+// ===================== 新增：基于平行度的平面分类与极值平面选择 =====================
+/**
+ * 将平面按法向量与主轴的平行度分为三组，并在每组中选出投影最小和最大的两个平面
+ * @param allPlanes 所有拟合平面
+ * @param axes 三个主轴方向（单位向量）
+ * @param plane_min 输出：每个轴上投影最小的平面
+ * @param plane_max 输出：每个轴上投影最大的平面
+ */
+void selectExtremePlanesPerAxis(const std::vector<PlaneInfo>& allPlanes,
+                                const std::array<Eigen::Vector3f, 3>& axes,
+                                PlaneInfo (&plane_min)[3],
+                                PlaneInfo (&plane_max)[3])
 {
-    // 收集所有平面的法向量（归一化）
-    std::vector<Eigen::Vector3f> normals;
-    for (const auto& p : allPlanes) {
-        Eigen::Vector3f n(p.plane_eq[0], p.plane_eq[1], p.plane_eq[2]);
+    // 1. 按法向量与主轴的点积绝对值分组
+    std::vector<PlaneInfo> groups[3];
+    for (const auto& plane : allPlanes) {
+        Eigen::Vector3f n(plane.plane_eq[0], plane.plane_eq[1], plane.plane_eq[2]);
         n.normalize();
-        normals.push_back(n);
-    }
 
-    // 统计每个主轴方向上的平面数量（取法向量与主轴点积绝对值最大的轴）
-    std::vector<int> count(3, 0);
-    for (const auto& n : normals) {
         int best_axis = 0;
-        float max_dot = std::abs(n.dot(axes[0]));
-        for (int i = 1; i < 3; ++i) {
-            float dot = std::abs(n.dot(axes[i]));
-            if (dot > max_dot) {
-                max_dot = dot;
-                best_axis = i;
-            }
-        }
-        count[best_axis]++;
-    }
-
-    // 数量最少的轴为垂直轴（地面+天花板平面最少）
-    vertical_axis = std::min_element(count.begin(), count.end()) - count.begin();
-    horz_axis1 = (vertical_axis + 1) % 3;
-    horz_axis2 = (vertical_axis + 2) % 3;
-
-    std::cout << "\n自动估计的主轴方向：" << std::endl;
-    std::cout << "垂直轴: " << axes[vertical_axis].transpose() << " (平面数: " << count[vertical_axis] << ")" << std::endl;
-    std::cout << "水平轴1: " << axes[horz_axis1].transpose() << " (平面数: " << count[horz_axis1] << ")" << std::endl;
-    std::cout << "水平轴2: " << axes[horz_axis2].transpose() << " (平面数: " << count[horz_axis2] << ")" << std::endl;
-
-    // 将每个平面分类到六个组：每个轴的正负侧
-    std::vector<PlaneInfo> groups[3][2]; // groups[axis][sign], sign: 0=负, 1=正
-
-    for (size_t i = 0; i < allPlanes.size(); ++i) {
-        const auto& plane = allPlanes[i];
-        Eigen::Vector3f n = normals[i];
-        // 确定属于哪个轴（取点积绝对值最大的轴）
-        int axis = 0;
         float max_dot = std::abs(n.dot(axes[0]));
         for (int j = 1; j < 3; ++j) {
             float dot = std::abs(n.dot(axes[j]));
             if (dot > max_dot) {
                 max_dot = dot;
-                axis = j;
+                best_axis = j;
             }
         }
-        // 确定符号（点积的正负）
-        float dot = n.dot(axes[axis]);
-        int sign = (dot >= 0) ? 1 : 0; // 1: 正方向, 0: 负方向
-        groups[axis][sign].push_back(plane);
+        groups[best_axis].push_back(plane);
+    }
+
+    for (int axis = 0; axis < 3; ++axis) {
+        std::cout << "\n===== 轴 " << axis << " 分组详情 =====" << std::endl;
+        std::cout << "共 " << groups[axis].size() << " 个平面" << std::endl;
+        // 打印每个平面的中心坐标和点数量
+        for (size_t i = 0; i < groups[axis].size(); ++i) {
+            const auto& p = groups[axis][i];
+            std::cout << "  平面" << i << "：中心(" << p.avg_x << "," << p.avg_y << "," << p.avg_z 
+                      << ") 点数量=" << p.point_num << std::endl;
+        }
     }
 
     // 辅助函数：计算平面中心在给定轴上的投影
@@ -266,85 +253,127 @@ void filterRoomPlanes(const std::vector<PlaneInfo>& allPlanes,
         return p.avg_x * axes[axis].x() + p.avg_y * axes[axis].y() + p.avg_z * axes[axis].z();
     };
 
-    // 在每个轴的正负组中，选择投影最小/最大的平面（即最远端的平面）
-    auto selectExtreme = [&](int axis, int sign, bool findMin) -> PlaneInfo {
-        const auto& group = groups[axis][sign];
-        if (group.empty()) {
-            // 如果该侧没有平面，则用整个点云的极值投影代替（需要点云数据，这里简化处理）
-            throw std::runtime_error("错误：在轴 " + std::to_string(axis) + " 符号 " + std::to_string(sign) + " 中没有平面！");
+    // 2. 在每个组中找出投影最小和最大的平面
+    for (int axis = 0; axis < 3; ++axis) {
+        if (groups[axis].empty()) {
+            std::cerr << "错误：轴 " << axis << " 没有平面，无法计算房间尺寸！" << std::endl;
+            throw std::runtime_error("缺少某一方向的平面");
         }
-        int best_idx = 0;
-        float best_val = proj(group[0], axis);
-        for (size_t i = 1; i < group.size(); ++i) {
-            float val = proj(group[i], axis);
-            if ((findMin && val < best_val) || (!findMin && val > best_val)) {
-                best_val = val;
-                best_idx = i;
+
+        int min_idx = 0, max_idx = 0;
+        float min_val = proj(groups[axis][0], axis);
+        float max_val = proj(groups[axis][0], axis);
+
+        for (size_t i = 1; i < groups[axis].size(); ++i) {
+            float val = proj(groups[axis][i], axis);
+            if (val < min_val) {
+                min_val = val;
+                min_idx = i;
+            }
+            if (val > max_val) {
+                max_val = val;
+                max_idx = i;
             }
         }
-        return group[best_idx];
-    };
 
-    // 垂直方向：负侧为地面，正侧为天花板
-    ground  = selectExtreme(vertical_axis, 0, true);   // 投影最小
-    ceiling = selectExtreme(vertical_axis, 1, false);  // 投影最大
+        plane_min[axis] = groups[axis][min_idx];
+        plane_max[axis] = groups[axis][max_idx];
 
-    // 水平轴1：负侧为一侧墙面，正侧为对面墙面
-    wall_min1 = selectExtreme(horz_axis1, 0, true);
-    wall_max1 = selectExtreme(horz_axis1, 1, false);
-
-    // 水平轴2
-    wall_min2 = selectExtreme(horz_axis2, 0, true);
-    wall_max2 = selectExtreme(horz_axis2, 1, false);
-
-    // 输出筛选结果
-    std::cout << "\n✅ 地面/天花板筛选完成：" << std::endl;
-    std::cout << "  - 地面：投影值=" << proj(ground, vertical_axis) << " | 点数量=" << ground.point_num << std::endl;
-    std::cout << "  - 天花板：投影值=" << proj(ceiling, vertical_axis) << " | 点数量=" << ceiling.point_num << std::endl;
-    std::cout << "✅ 水平轴1墙面筛选完成：" << std::endl;
-    std::cout << "  - 负侧墙：投影值=" << proj(wall_min1, horz_axis1) << " | 点数量=" << wall_min1.point_num << std::endl;
-    std::cout << "  - 正侧墙：投影值=" << proj(wall_max1, horz_axis1) << " | 点数量=" << wall_max1.point_num << std::endl;
-    std::cout << "✅ 水平轴2墙面筛选完成：" << std::endl;
-    std::cout << "  - 负侧墙：投影值=" << proj(wall_min2, horz_axis2) << " | 点数量=" << wall_min2.point_num << std::endl;
-    std::cout << "  - 正侧墙：投影值=" << proj(wall_max2, horz_axis2) << " | 点数量=" << wall_max2.point_num << std::endl;
+        std::cout << "轴 " << axis << " 极值平面：最小投影 = " << min_val
+                  << " (平面点数=" << plane_min[axis].point_num << ")"
+                  << "，最大投影 = " << max_val
+                  << " (平面点数=" << plane_max[axis].point_num << ")" << std::endl;
+    }
 }
 
-// ---------------------- 7. 计算房间尺寸（投影差值） ----------------------
-void calculateRoomSize(const PlaneInfo& ground, const PlaneInfo& ceiling,
-                       const PlaneInfo& wall_min1, const PlaneInfo& wall_max1,
-                       const PlaneInfo& wall_min2, const PlaneInfo& wall_max2,
-                       const std::array<Eigen::Vector3f, 3>& axes,
-                       int vertical_axis, int horz_axis1, int horz_axis2,
-                       float& length, float& width, float& height)
+// ===================== 新增：通过平面求交计算房间尺寸 =====================
+/**
+ * 由六个极值平面计算房间沿三个主轴方向的尺寸
+ * @param plane_min 每个轴上投影最小的平面
+ * @param plane_max 每个轴上投影最大的平面
+ * @param axes 三个主轴方向
+ * @param length 输出：第一个主轴方向的尺寸
+ * @param width  输出：第二个主轴方向的尺寸
+ * @param height 输出：第三个主轴方向的尺寸
+ * @return true 表示成功
+ */
+bool computeRoomDimensions(const PlaneInfo (&plane_min)[3],
+                           const PlaneInfo (&plane_max)[3],
+                           const std::array<Eigen::Vector3f, 3>& axes,
+                           float& length, float& width, float& height)
 {
-    auto proj = [&](const PlaneInfo& p, int axis) -> float {
-        return p.avg_x * axes[axis].x() + p.avg_y * axes[axis].y() + p.avg_z * axes[axis].z();
+    // 求所有 8 个角点（每个轴选 min 或 max 平面）
+    std::vector<Eigen::Vector3f> corners;
+    corners.reserve(8);
+
+    for (int i = 0; i < 2; ++i) {
+        for (int j = 0; j < 2; ++j) {
+            for (int k = 0; k < 2; ++k) {
+                const PlaneInfo& pA = (i == 0) ? plane_min[0] : plane_max[0];
+                const PlaneInfo& pB = (j == 0) ? plane_min[1] : plane_max[1];
+                const PlaneInfo& pC = (k == 0) ? plane_min[2] : plane_max[2];
+
+                Eigen::Vector3f n1(pA.plane_eq[0], pA.plane_eq[1], pA.plane_eq[2]);
+                Eigen::Vector3f n2(pB.plane_eq[0], pB.plane_eq[1], pB.plane_eq[2]);
+                Eigen::Vector3f n3(pC.plane_eq[0], pC.plane_eq[1], pC.plane_eq[2]);
+
+                float d1 = -pA.plane_eq[3];   // n1·p = -d
+                float d2 = -pB.plane_eq[3];
+                float d3 = -pC.plane_eq[3];
+
+                Eigen::Matrix3f A;
+                A.row(0) = n1;
+                A.row(1) = n2;
+                A.row(2) = n3;
+                Eigen::Vector3f b(d1, d2, d3);
+
+                // 解线性方程组 A * p = b
+                Eigen::Vector3f corner = A.colPivHouseholderQr().solve(b);
+                corners.push_back(corner);
+            }
+        }
+    }
+
+    if (corners.size() != 8) {
+        std::cerr << "警告：只获得 " << corners.size() << " 个角点，尺寸计算可能不准确。" << std::endl;
+    }
+
+    // 计算每个主轴方向上的投影极差
+    auto spanOnAxis = [&](const Eigen::Vector3f& axis) -> float {
+        float min_val = corners[0].dot(axis);
+        float max_val = min_val;
+        for (size_t idx = 1; idx < corners.size(); ++idx) {
+            float val = corners[idx].dot(axis);
+            if (val < min_val) min_val = val;
+            if (val > max_val) max_val = val;
+        }
+        return max_val - min_val;
     };
 
-    height = std::abs(proj(ceiling, vertical_axis) - proj(ground, vertical_axis));
-    length = std::abs(proj(wall_max1, horz_axis1) - proj(wall_min1, horz_axis1));
-    width  = std::abs(proj(wall_max2, horz_axis2) - proj(wall_min2, horz_axis2));
+    length = spanOnAxis(axes[0]);
+    width  = spanOnAxis(axes[1]);
+    height = spanOnAxis(axes[2]);
+
+    return true;
 }
 
-// ---------------------- 8. 主函数 ----------------------
+// ===================== 主函数 =====================
 int main(int argc, char** argv)
 {
     // 1. 读取预处理点云
     PointCloudT::Ptr cloud = loadAndPreprocessCloud(PCD_PATH);
+
+    // 2. 计算自适应alpha并提取轮廓
     float avg_spacing = computeAverageSpacing(cloud, 2, 10);
     float alpha = ALPHA_FACTOR * avg_spacing;
-    std::cout << "计算得到的平均点间距: " << avg_spacing << " m, alpha = " << alpha << std::endl;
-    // 2. Alpha shape 提取轮廓
-    PointCloudT::Ptr hull_cloud = extractConcaveHull(cloud, alpha);
-    // 保存轮廓点云
-    pcl::io::savePCDFileASCII("contour_points.pcd", *hull_cloud);
-    // pcl::io::savePCDFileASCII("contour_points.pcd", *cloud);
+    std::cout << "平均点间距: " << avg_spacing << " m, alpha = " << alpha << std::endl;
 
+    PointCloudT::Ptr hull_cloud = extractConcaveHull(cloud, alpha);
+    pcl::io::savePCDFileASCII("contour_points.pcd", *hull_cloud);
     std::cout << "轮廓点云已保存到 contour_points.pcd" << std::endl;
+
     // 3. 对轮廓点云拟合平面
     std::vector<PlaneInfo> allPlanes = fitFixedNumPlanes(hull_cloud);
-    // std::vector<PlaneInfo> allPlanes = fitFixedNumPlanes(cloud);
-
     if (allPlanes.empty()) {
         std::cerr << "错误：未拟合到任何平面！" << std::endl;
         return -1;
@@ -361,27 +390,31 @@ int main(int argc, char** argv)
     // 5. 估计主轴
     auto axes = estimatePrincipalAxes(normals);
 
-    // 6. 筛选房间6个主面
-    int vertical_axis, horz_axis1, horz_axis2;
-    PlaneInfo ground, ceiling, wall_min1, wall_max1, wall_min2, wall_max2;
+    std::cout << "\n估计的主轴方向：" << std::endl;
+    for (int i = 0; i < 3; ++i)
+        std::cout << "轴 " << i << ": " << axes[i].transpose() << std::endl;
+
+    // 6. 基于平行度分类，选择每个方向上的两个极值平面
+    PlaneInfo plane_min[3], plane_max[3];
     try {
-        filterRoomPlanes(allPlanes, axes, vertical_axis, horz_axis1, horz_axis2,
-                         ground, ceiling, wall_min1, wall_max1, wall_min2, wall_max2);
+        selectExtremePlanesPerAxis(allPlanes, axes, plane_min, plane_max);
     } catch (const std::exception& e) {
         std::cerr << "平面筛选失败：" << e.what() << std::endl;
         return -1;
     }
 
-    // 7. 计算房间尺寸
+    // 7. 通过平面求交计算房间尺寸
     float L = 0, W = 0, H = 0;
-    calculateRoomSize(ground, ceiling, wall_min1, wall_max1, wall_min2, wall_max2,
-                      axes, vertical_axis, horz_axis1, horz_axis2, L, W, H);
+    if (!computeRoomDimensions(plane_min, plane_max, axes, L, W, H)) {
+        std::cerr << "尺寸计算失败！" << std::endl;
+        return -1;
+    }
 
     // 8. 输出最终结果
-    std::cout << "\n===== ✅ 房间最终精准尺寸（轮廓+主轴算法） =====" << std::endl;
-    std::cout << "长度 (水平轴1) : " << std::fixed << std::setprecision(3) << L << " m" << std::endl;
-    std::cout << "宽度 (水平轴2) : " << std::fixed << std::setprecision(3) << W << " m" << std::endl;
-    std::cout << "高度 (垂直轴)   : " << std::fixed << std::setprecision(3) << H << " m" << std::endl;
+    std::cout << "\n===== ✅ 房间最终精准尺寸（基于平面求交） =====" << std::endl;
+    std::cout << "长度 (轴0方向) : " << std::fixed << std::setprecision(3) << L << " m" << std::endl;
+    std::cout << "宽度 (轴1方向) : " << std::fixed << std::setprecision(3) << W << " m" << std::endl;
+    std::cout << "高度 (轴2方向) : " << std::fixed << std::setprecision(3) << H << " m" << std::endl;
     std::cout << "体积           : " << std::fixed << std::setprecision(3) << L * W * H << " m³" << std::endl;
 
     return 0;
