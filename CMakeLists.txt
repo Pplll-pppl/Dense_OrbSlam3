@@ -40,20 +40,21 @@ set(PCL_INCLUDE_DIRS
 # 3. PCL库文件路径（.so/.a文件所在目录）
 set(PCL_LIBRARY_DIRS 
         ${PCL_INSTALL_DIR}/lib
-        /usr/lib/x86_64-linux-gnu  # VTK 9.1库文件所在目录（无需加vtk-9.1子目录）
 )
 
 # 4. 需要链接的PCL核心库（匹配你的PCL模块）
+# 使用绝对路径固定到 3rdParty PCL，避免 -lpcl_* 被 /usr/lib 里的系统 PCL 解析走。
 set(PCL_LIBRARIES
     # 稠密建图必需的PCL库
-    pcl_common
-    pcl_filters
-    pcl_visualization
-    pcl_io
-    pcl_kdtree
-    pcl_search
-    pcl_segmentation          # ✅ 必须加：解决SACSegmentation核心依赖
-    pcl_sample_consensus      # ✅ 必须加：SAC分割的采样一致性算法底层库
+    ${PCL_INSTALL_DIR}/lib/libpcl_common.so
+    ${PCL_INSTALL_DIR}/lib/libpcl_filters.so
+    ${PCL_INSTALL_DIR}/lib/libpcl_visualization.so
+    ${PCL_INSTALL_DIR}/lib/libpcl_io.so
+    ${PCL_INSTALL_DIR}/lib/libpcl_kdtree.so
+    ${PCL_INSTALL_DIR}/lib/libpcl_search.so
+    ${PCL_INSTALL_DIR}/lib/libpcl_segmentation.so
+    ${PCL_INSTALL_DIR}/lib/libpcl_sample_consensus.so
+    ${PCL_INSTALL_DIR}/lib/libpcl_surface.so
     # PCL依赖的系统库
     pthread
     atomic
@@ -73,9 +74,6 @@ link_directories(${PCL_LIBRARY_DIRS})
 # 6. 禁用系统PCL自动查找（避免冲突）
 set(PCL_FOUND TRUE)
 # ==============================================
-# ========== 新增：指定 Python 3.12 运行时路径 ==========
-set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,-rpath=/usr/lib/x86_64-linux-gnu/")
-
 IF(NOT CMAKE_BUILD_TYPE)
   SET(CMAKE_BUILD_TYPE Release)
 ENDIF()
@@ -106,6 +104,7 @@ set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -march=native")
 
 LIST(APPEND CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake_modules)
 
+set(OpenCV_DIR "/home/ricky/WCR_ws/dense_orbslam3/3rdParty/Opencv/build-full" CACHE PATH "OpenCV config path" FORCE)
 find_package(OpenCV 4.2)
    if(NOT OpenCV_FOUND)
       message(FATAL_ERROR "OpenCV > 4.2 not found.")
@@ -200,6 +199,11 @@ if(realsense2_FOUND)
     )
 endif()
 
+set_target_properties(${PROJECT_NAME} PROPERTIES
+    BUILD_RPATH "${PROJECT_SOURCE_DIR}/3rdParty/Opencv/build-full/lib:${PCL_INSTALL_DIR}/lib:${PROJECT_SOURCE_DIR}/3rdParty/Pangolin/build/src:${PROJECT_SOURCE_DIR}/Thirdparty/DBoW2/lib:${PROJECT_SOURCE_DIR}/Thirdparty/g2o/lib"
+    INSTALL_RPATH "${PROJECT_SOURCE_DIR}/3rdParty/Opencv/build-full/lib:${PCL_INSTALL_DIR}/lib:${PROJECT_SOURCE_DIR}/3rdParty/Pangolin/build/src:${PROJECT_SOURCE_DIR}/Thirdparty/DBoW2/lib:${PROJECT_SOURCE_DIR}/Thirdparty/g2o/lib"
+)
+
 find_package(Boost REQUIRED COMPONENTS program_options filesystem system)
 if(Boost_FOUND)
     include_directories(${Boost_INCLUDE_DIRS})
@@ -244,10 +248,59 @@ target_link_libraries(room_size_calc
     ${EIGEN3_LIBS}
 )
 
+add_executable(room_size_calc_fast_demo
+    Examples/RGB-D/room_size_calc_fast_demo.cc
+)
+target_link_libraries(room_size_calc_fast_demo
+    ${PROJECT_NAME}
+    ${PCL_LIBRARIES}
+    ${EIGEN3_LIBS}
+)
+
+add_executable(room_size_calc_min_rect_demo
+    Examples/RGB-D/room_size_calc_min_rect_demo.cc
+)
+target_link_libraries(room_size_calc_min_rect_demo
+    ${PROJECT_NAME}
+    ${PCL_LIBRARIES}
+    ${EIGEN3_LIBS}
+)
+
+add_executable(room_size_calc_shear_corrected
+    Examples/RGB-D/room_size_calc_shear_corrected.cc
+)
+target_link_libraries(room_size_calc_shear_corrected
+    ${PROJECT_NAME}
+    ${PCL_LIBRARIES}
+    ${EIGEN3_LIBS}
+)
+
+add_executable(room_size_calc_non_destructive_planes
+    Examples/RGB-D/room_size_calc_non_destructive_planes.cc
+)
+target_link_libraries(room_size_calc_non_destructive_planes
+    ${PROJECT_NAME}
+    ${PCL_LIBRARIES}
+    ${EIGEN3_LIBS}
+)
+
+add_executable(light_pca_shear_project
+    Examples/RGB-D/light_pca_shear_project.cc
+)
+target_link_libraries(light_pca_shear_project
+    ${PROJECT_NAME}
+    ${PCL_LIBRARIES}
+    ${EIGEN3_LIBS}
+)
+
 if(realsense2_FOUND)
     add_executable(rgbd_realsense_D435i
             Examples/RGB-D/rgbd_realsense_D435i.cc)
     target_link_libraries(rgbd_realsense_D435i ${PROJECT_NAME})
+
+    add_executable(rgbd_dense_realsense_D435i
+            Examples/RGB-D/rgbd_dense_realsense_D435i.cc)
+    target_link_libraries(rgbd_dense_realsense_D435i ${PROJECT_NAME})
 endif()
 
 # RGB-D inertial examples
@@ -257,6 +310,10 @@ if(realsense2_FOUND)
     add_executable(rgbd_inertial_realsense_D435i
             Examples/RGB-D-Inertial/rgbd_inertial_realsense_D435i.cc)
     target_link_libraries(rgbd_inertial_realsense_D435i ${PROJECT_NAME})
+
+    add_executable(rgbd_dense_inertial_realsense_D435i
+            Examples/RGB-D-Inertial/rgbd_dense_inertial_realsense_D435i.cc)
+    target_link_libraries(rgbd_dense_inertial_realsense_D435i ${PROJECT_NAME})
 endif()
 
 #Stereo examples
@@ -365,4 +422,3 @@ if(realsense2_FOUND)
             Examples/Calibration/recorder_realsense_T265.cc)
     target_link_libraries(recorder_realsense_T265 ${PROJECT_NAME})
 endif()
-

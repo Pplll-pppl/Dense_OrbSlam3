@@ -3,6 +3,7 @@
 
 #include "System.h"
 
+#include <Eigen/Core>
 #include <opencv2/core.hpp>
 
 #include <pcl/point_types.h>
@@ -17,6 +18,7 @@
 #include <condition_variable>
 #include <queue>
 #include <atomic>
+#include <chrono>
 
 namespace ORB_SLAM3
 {
@@ -38,27 +40,29 @@ public:
     void save();
 
     void insertKeyFrame(KeyFrame* kf, cv::Mat& color, cv::Mat& depth);
-    // 新增：回环检测回调
-    void onLoopClosureDetected();
+    PointCloud::Ptr getGlobalPointCloud(); //for ros2 rviz visualization
 
 private:
+    struct KeyFrameData {
+        unsigned long keyframe_id = 0;
+        float fx = 0.0f;
+        float fy = 0.0f;
+        float cx = 0.0f;
+        float cy = 0.0f;
+        Eigen::Matrix4f Twc = Eigen::Matrix4f::Identity();
+        cv::Mat color;
+        cv::Mat depth;
+        std::chrono::steady_clock::time_point enqueue_time;
+    };
+
     // 严格统一返回类型
-    PointCloudMappingRGBD::PointCloud::Ptr GetPointCloud(KeyFrame* kf, cv::Mat& color, cv::Mat& depth);
+    PointCloudMappingRGBD::PointCloud::Ptr GetPointCloud(const KeyFrameData& data);
 
     void Run();
-
-    // 新增：全局优化方法
-    void optimizeGlobalPointCloud();
-    bool needGlobalOptimization();
+    void printTimingSummary() const;
     
     PointCloudMappingRGBD::PointCloud::Ptr globalMap;
     std::mutex globalMapMutex;
-
-    struct KeyFrameData {
-        KeyFrame* kf = nullptr;
-        cv::Mat color;
-        cv::Mat depth;
-    };
 
     std::queue<KeyFrameData> mqNewKeyFrames;
     std::mutex mqMutex;
@@ -66,6 +70,7 @@ private:
 
     std::thread mThread;
     std::atomic<bool> mbStop{false};
+    std::atomic<bool> mbHasShutdown{false};
 
     double resolution;
     double meank;
@@ -76,12 +81,17 @@ private:
     pcl::StatisticalOutlierRemoval<PointT> sor;
 
     size_t mProcessedKFCount = 0;
-    static constexpr size_t GLOBAL_VOXEL_INTERVAL = 10;
 
-    // 新增：全局优化相关参数
-    int mGlobalOptimizationInterval;
-    bool mEnableGlobalOptimization;
-    bool mLastLoopClosure;
+    std::chrono::steady_clock::time_point mThreadStartTime;
+    std::chrono::steady_clock::time_point mThreadEndTime;
+    std::chrono::steady_clock::time_point mFirstKFProcessTime;
+    std::chrono::steady_clock::time_point mLastKFProcessTime;
+    bool mHasProcessedAnyKF = false;
+    double mTotalQueueWaitMs = 0.0;
+    double mTotalPointCloudBuildMs = 0.0;
+    double mTotalVoxelFilterMs = 0.0;
+    double mTotalMergeMs = 0.0;
+    double mTotalMappingMs = 0.0;
 };
 
 } // namespace ORB_SLAM3

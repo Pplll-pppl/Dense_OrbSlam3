@@ -25,6 +25,7 @@
 #include "Atlas.h"
 #include "ORBVocabulary.h"
 #include "Tracking.h"
+#include "System.h"
 
 #include "KeyFrameDatabase.h"
 
@@ -40,6 +41,7 @@ class Tracking;
 class LocalMapping;
 class KeyFrameDatabase;
 class Map;
+class System;
 
 
 class LoopClosing
@@ -53,6 +55,7 @@ public:
 public:
 
     LoopClosing(Atlas* pAtlas, KeyFrameDatabase* pDB, ORBVocabulary* pVoc,const bool bFixScale, const bool bActiveLC);
+
 
     void SetTracker(Tracking* pTracker);
 
@@ -81,6 +84,11 @@ public:
     void RequestFinish();
 
     bool isFinished();
+
+    int KeyframesInQueue(){
+        unique_lock<std::mutex> lock(mMutexLoopQueue);
+        return mlpLoopKeyFrameQueue.size();
+    }
 
     Viewer* mpViewer;
 

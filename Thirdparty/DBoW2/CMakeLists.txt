@@ -28,6 +28,7 @@ set(SRCS_DUTILS
   DUtils/Random.cpp
   DUtils/Timestamp.cpp)
 
+set(OpenCV_DIR "/home/ricky/WCR_ws/dense_orbslam3/3rdParty/Opencv/build-full" CACHE PATH "OpenCV config path" FORCE)
 
 find_package(OpenCV 4 QUIET)
 if(NOT OpenCV_FOUND)
@@ -42,4 +43,7 @@ set(LIBRARY_OUTPUT_PATH ${PROJECT_SOURCE_DIR}/lib)
 include_directories(${OpenCV_INCLUDE_DIRS})
 add_library(DBoW2 SHARED ${SRCS_DBOW2} ${SRCS_DUTILS})
 target_link_libraries(DBoW2 ${OpenCV_LIBS})
-
+set_target_properties(DBoW2 PROPERTIES
+  BUILD_RPATH "/home/ricky/WCR_ws/dense_orbslam3/3rdParty/Opencv/build-full/lib"
+  INSTALL_RPATH "/home/ricky/WCR_ws/dense_orbslam3/3rdParty/Opencv/build-full/lib"
+)

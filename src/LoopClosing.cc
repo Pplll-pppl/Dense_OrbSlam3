@@ -40,7 +40,6 @@ LoopClosing::LoopClosing(Atlas *pAtlas, KeyFrameDatabase *pDB, ORBVocabulary *pV
 {
     mnCovisibilityConsistencyTh = 3;
     mpLastCurrentKF = static_cast<KeyFrame*>(NULL);
-
 #ifdef REGISTER_TIMES
 
     vdDataQuery_ms.clear();
@@ -1188,7 +1187,8 @@ void LoopClosing::CorrectLoop()
     double timeOptEss = std::chrono::duration_cast<std::chrono::duration<double,std::milli> >(time_EndOpt - time_EndFusion).count();
     vdLoopOptEss_ms.push_back(timeOptEss);
 #endif
-
+    
+    
     mpAtlas->InformNewBigChange();
 
     // Add loop edge

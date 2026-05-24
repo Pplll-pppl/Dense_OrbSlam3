@@ -208,11 +208,10 @@ System::System(const string &strVocFile, const string &strSettingsFile, const eS
     else
         mpLocalMapper->mbFarPoints = false;
 
-    //Initialize the Loop Closing thread and launch
     // mSensor!=MONOCULAR && mSensor!=IMU_MONOCULAR
     mpLoopCloser = new LoopClosing(mpAtlas, mpKeyFrameDatabase, mpVocabulary, mSensor!=MONOCULAR, activeLC); // mSensor!=MONOCULAR);
     mptLoopClosing = new thread(&ORB_SLAM3::LoopClosing::Run, mpLoopCloser);
-
+    
     //Set pointers between threads
     mpTracker->SetLocalMapper(mpLocalMapper);
     mpTracker->SetLoopClosing(mpLoopCloser);
@@ -239,6 +238,11 @@ System::System(const string &strVocFile, const string &strSettingsFile, const eS
     // Fix verbosity
     Verbose::SetTh(Verbose::VERBOSITY_QUIET);
 
+}
+
+Atlas* System::GetAtlas()
+{
+    return mpAtlas;
 }
 
 Sophus::SE3f System::TrackStereo(const cv::Mat &imLeft, const cv::Mat &imRight, const double &timestamp, const vector<IMU::Point>& vImuMeas, string filename)
@@ -521,29 +525,35 @@ void System::Shutdown()
 
     cout << "Shutdown" << endl;
 
+    while(mpLocalMapper && !mpLocalMapper->isFinished() &&
+          (mpLocalMapper->KeyframesInQueue() > 0 ||
+           (!mpLocalMapper->AcceptKeyFrames() && !mpLocalMapper->isStopped())))
+    {
+        usleep(5000);
+    }
+
+    while(mpLoopCloser && !mpLoopCloser->isFinished() &&
+          (mpLoopCloser->KeyframesInQueue() > 0 || mpLoopCloser->isRunningGBA()))
+    {
+        usleep(5000);
+    }
+
     mpLocalMapper->RequestFinish();
     mpLoopCloser->RequestFinish();
-    /*if(mpViewer)
+
+    if(mpViewer)
     {
         mpViewer->RequestFinish();
-        while(!mpViewer->isFinished())
+        while((!mptViewer || mptViewer->get_id() != std::this_thread::get_id()) &&
+              !mpViewer->isFinished())
             usleep(5000);
-    }*/
+    }
 
     // Wait until all thread have effectively stopped
-    /*while(!mpLocalMapper->isFinished() || !mpLoopCloser->isFinished() || mpLoopCloser->isRunningGBA())
+    while(!mpLocalMapper->isFinished() || !mpLoopCloser->isFinished())
     {
-        if(!mpLocalMapper->isFinished())
-            cout << "mpLocalMapper is not finished" << endl;*/
-        /*if(!mpLoopCloser->isFinished())
-            cout << "mpLoopCloser is not finished" << endl;
-        if(mpLoopCloser->isRunningGBA()){
-            cout << "mpLoopCloser is running GBA" << endl;
-            cout << "break anyway..." << endl;
-            break;
-        }*/
-        /*usleep(5000);
-    }*/
+        usleep(5000);
+    }
 
     if(!mStrSaveAtlasToFile.empty())
     {
@@ -1441,7 +1451,6 @@ void System::SaveAtlas(int type){
         }
     }
 }
-
 bool System::LoadAtlas(int type)
 {
     string strFileVoc, strVocChecksum;
@@ -1546,4 +1555,3 @@ string System::CalculateCheckSum(string filename, int type)
 }
 
 } //namespace ORB_SLAM
-

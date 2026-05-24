@@ -1,7 +1,11 @@
 #include <iostream>
 #include <algorithm>
+#include <cmath>
 #include <fstream>
 #include <chrono>
+#include <iomanip>
+#include <limits>
+#include <sstream>
 #include <vector>
 #include <unistd.h>
 #include <opencv2/core/core.hpp>
@@ -18,6 +22,51 @@
 using namespace std;
 namespace po = boost::program_options;
 namespace fs = boost::filesystem;
+
+struct RGBDFrameRecord {
+    double timestamp = 0.0;
+    string rgb_path;
+    string depth_path;
+};
+
+bool FindRGBDFrameForTimestamp(const vector<RGBDFrameRecord>& frames,
+                               double timestamp,
+                               RGBDFrameRecord& out_record)
+{
+    if (frames.empty())
+        return false;
+
+    auto it = lower_bound(frames.begin(), frames.end(), timestamp,
+                          [](const RGBDFrameRecord& frame, double t) {
+                              return frame.timestamp < t;
+                          });
+
+    auto best = frames.end();
+    double best_diff = numeric_limits<double>::max();
+
+    if (it != frames.end())
+    {
+        best = it;
+        best_diff = fabs(it->timestamp - timestamp);
+    }
+
+    if (it != frames.begin())
+    {
+        auto prev = it - 1;
+        const double diff = fabs(prev->timestamp - timestamp);
+        if (diff < best_diff)
+        {
+            best = prev;
+            best_diff = diff;
+        }
+    }
+
+    if (best == frames.end() || best_diff > 1e-4)
+        return false;
+
+    out_record = *best;
+    return true;
+}
 
 // ====================== 自定义数据集文件排序（适配rgb/depth文件夹模式） ======================
 class StringSort {
@@ -138,12 +187,28 @@ int main(int argc, char **argv) {
 
     cout << "成功加载 " << nImages << " 帧图像" << endl;
 
+    vector<RGBDFrameRecord> rgbd_frames;
+    rgbd_frames.reserve(nImages);
+    for (int i = 0; i < nImages; ++i) {
+        RGBDFrameRecord record;
+        record.timestamp = vTimestamps[i];
+        record.rgb_path = vstrImageFilenamesRGB[i];
+        record.depth_path = vstrImageFilenamesD[i];
+        rgbd_frames.push_back(record);
+    }
+    sort(rgbd_frames.begin(), rgbd_frames.end(),
+         [](const RGBDFrameRecord& a, const RGBDFrameRecord& b) {
+             return a.timestamp < b.timestamp;
+         });
+
     // 初始化 SLAM 和建图
-    ORB_SLAM3::System SLAM(voc_path, param_path, ORB_SLAM3::System::RGBD, false);
-    ORB_SLAM3::PointCloudMappingRGBD* pPointCloudMapping = new ORB_SLAM3::PointCloudMappingRGBD(0.05, 50, 1.0, 5000.0);  // TUM unit=5000
+    ORB_SLAM3::System SLAM(voc_path, param_path, ORB_SLAM3::System::RGBD, true);
+    ORB_SLAM3::PointCloudMappingRGBD* pPointCloudMapping = new ORB_SLAM3::PointCloudMappingRGBD(0.01, 50, 2.0, 5000.0);  // TUM unit=5000
 
     // 逐帧处理
     cv::Mat imRGB, imD;
+    auto start_time = chrono::steady_clock::now();
+    const int MAX_RUNTIME_SECONDS = 40;
     for (int ni = 0; ni < nImages; ni++) {
         imRGB = cv::imread(vstrImageFilenamesRGB[ni], cv::IMREAD_UNCHANGED);
         imD = cv::imread(vstrImageFilenamesD[ni], cv::IMREAD_UNCHANGED);
@@ -151,18 +216,20 @@ int main(int argc, char **argv) {
 
         if (imRGB.empty() || imD.empty()) continue;
 
+        // Check if maximum runtime reached
+        auto current_time = chrono::steady_clock::now();
+        double elapsed_seconds = chrono::duration_cast<chrono::duration<double>>(current_time - start_time).count();
+        if (elapsed_seconds > MAX_RUNTIME_SECONDS) {
+            cout << "Runtime limit reached (" << MAX_RUNTIME_SECONDS << " seconds). Shutting down..." << endl;
+            break;
+        }
+
         auto t1 = chrono::steady_clock::now();
 
         SLAM.TrackRGBD(imRGB, imD, tframe);
         
         auto t2 = chrono::steady_clock::now();
         double ttrack = chrono::duration_cast<chrono::duration<double>>(t2 - t1).count();
-
-        ORB_SLAM3::KeyFrame* pKF = SLAM.GetTracker()->GetLastKeyFrame();
-
-        if (pKF) {
-            pPointCloudMapping->insertKeyFrame(pKF, imRGB, imD);
-        }
 
         double T = 0.03;
         if (ttrack < T) usleep((T - ttrack) * 1e6);
@@ -172,6 +239,55 @@ int main(int argc, char **argv) {
 
     // 收尾
     SLAM.Shutdown();
+
+    vector<ORB_SLAM3::KeyFrame*> vpKFs = SLAM.GetAtlas()->GetAllKeyFrames();
+    sort(vpKFs.begin(), vpKFs.end(), ORB_SLAM3::KeyFrame::lId);
+
+    size_t enqueued_dense_kfs = 0;
+    size_t skipped_bad_kfs = 0;
+    size_t skipped_missing_images = 0;
+
+    cout << "[Dense] SLAM 已关闭，开始按 Atlas 遍历关键帧并入队稠密融合，共 "
+         << vpKFs.size() << " 个关键帧" << endl;
+
+    for (ORB_SLAM3::KeyFrame* pKF : vpKFs) {
+        if (!pKF || pKF->isBad()) {
+            ++skipped_bad_kfs;
+            continue;
+        }
+
+        RGBDFrameRecord record;
+        if (!FindRGBDFrameForTimestamp(rgbd_frames, pKF->mTimeStamp, record)) {
+            ++skipped_missing_images;
+            cerr << "[Dense] 找不到关键帧 " << pKF->mnId
+                 << " 对应的 RGB-D 图像，timestamp=" << fixed << setprecision(6)
+                 << pKF->mTimeStamp << endl;
+            continue;
+        }
+
+        imRGB = cv::imread(record.rgb_path, cv::IMREAD_UNCHANGED);
+        imD = cv::imread(record.depth_path, cv::IMREAD_UNCHANGED);
+        if (imRGB.empty() || imD.empty()) {
+            ++skipped_missing_images;
+            cerr << "[Dense] 读取关键帧 " << pKF->mnId << " 图像失败: "
+                 << record.rgb_path << " / " << record.depth_path << endl;
+            continue;
+        }
+
+        pPointCloudMapping->insertKeyFrame(pKF, imRGB, imD);
+        ++enqueued_dense_kfs;
+
+        if (enqueued_dense_kfs % 10 == 0) {
+            cout << "[Dense] 已入队关键帧 " << enqueued_dense_kfs
+                 << "/" << vpKFs.size() << endl;
+        }
+    }
+
+    cout << "[Dense] 入队完成: " << enqueued_dense_kfs
+         << " 个关键帧，跳过 bad=" << skipped_bad_kfs
+         << "，缺图=" << skipped_missing_images
+         << "。等待稠密线程融合完队列..." << endl;
+
     pPointCloudMapping->shutdown();
     delete pPointCloudMapping;
     SLAM.SaveTrajectoryTUM("CameraTrajectory.txt");
