@@ -1,6 +1,14 @@
-# Dense-ORB-SLAM3
+<p align="center">
+  <img src="docs/assets/demo_dense_mapping_09s_12s.gif" width="48%" alt="稠密建图预览" />
+  <img src="docs/assets/demo_mapping_result_19s_24s.gif" width="48%" alt="建图结果预览" />
+</p>
 
-[English](README_EN.md) | [中文](README_CH.md)
+<h1 align="center">Dense-ORB-SLAM3</h1>
+
+<p align="center">
+  <a href="README_EN.md">English</a> ·
+  <a href="README_CH.md">中文</a>
+</p>
 
 本仓库是 [ORB_SLAM3](https://github.com/UZ-SLAMLab/ORB_SLAM3) 的修改版本，包含 ORB-SLAM3 核心库、RGB-D 稠密建图示例、相机配置、标定工具和点云处理工具。
 
@@ -213,27 +221,56 @@ kalibr_calibrate_cameras --bag /data/Examples/Calibration/recorder_visual.bag --
 
 注意：每次重新录制 bag 前，请删除 `recorder_visual/` 中的旧数据。
 
-### 常见 Kalibr 问题
+### 常见 Kalibr 问题和解决方案
 
-如果出现单相机标定图连接错误，例如 `Cameras are not connected through mutual observations` 或 `KeyError: 'Attribute does not exist'`，原因可能是 `stereolabs/kalibr` 镜像里的 `MulticamGraph.py` 对单相机场景不兼容。
+错误记录：
 
-临时方案是在容器内修改：
+```text
+Cameras are not connected through mutual observations, please check the dataset. Maybe adjust the approx. sync. tolerance.
+Traceback (most recent call last):
+  File "/kalibr_workspace/devel/bin/kalibr_calibrate_cameras", line 15, in <module>
+    exec(compile(fh.read(), python_script, 'exec'), context)
+  File "/kalibr_workspace/src/Kalibr/aslam_offline_calibration/kalibr/python/kalibr_calibrate_cameras", line 447, in <module>
+    main()
+  File "/kalibr_workspace/src/Kalibr/aslam_offline_calibration/kalibr/python/kalibr_calibrate_cameras", line 204, in main
+    graph.plotGraph()
+  File "/kalibr_workspace/src/Kalibr/aslam_offline_calibration/kalibr/python/kalibr_camera_calibration/MulticamGraph.py", line 311, in plotGraph
+    edge_label=self.G.es["weight"],
+KeyError: 'Attribute does not exist'
+```
+
+原因：`stereolabs/kalibr` 镜像中的
 
 ```text
 /kalibr_workspace/src/Kalibr/aslam_offline_calibration/kalibr/python/kalibr_camera_calibration/MulticamGraph.py
 ```
 
-将 `isGraphConnected` 改为：
+对单相机标定不兼容。相关函数原本是：
 
 ```python
 def isGraphConnected(self):
-    if self.numCams == 1:
-        return True
-    else:
-        return self.G.adhesion()
+    #check if all vertices are connected
+    return self.G.adhesion()
 ```
 
-这个修改只在当前容器生命周期内有效。如果需要长期使用，建议基于修改后的代码构建自己的 Kalibr 镜像。
+临时方案是在容器内把 `isGraphConnected` 改成：
+
+```python
+def isGraphConnected(self):
+
+    if self.numCams == 1:
+        # Since igaph 0.8, adhesion correctly returns 0 for the non-connected one cam case.
+        # which evaluates to false later on. So we skip the check and return true in the one camera case.
+        return True
+    else:
+        #check if all vertices are connected
+        return self.G.adhesion()
+    #returns the list of cam_ids that share common view with the specified cam_id
+
+def getCamOverlaps(self, cam_id):
+```
+
+这个修改是在容器内完成的，所以只在当前容器生命周期内有效，容器停止后原代码会恢复。如果需要长期使用，建议基于修改后的代码构建自己的 Kalibr 镜像。
 
 ## RGB-D 可执行命令
 

@@ -1,9 +1,14 @@
-# Dense-ORB-SLAM3
+<p align="center">
+  <img src="docs/assets/demo_dense_mapping_09s_12s.gif" width="48%" alt="Dense mapping preview" />
+  <img src="docs/assets/demo_mapping_result_19s_24s.gif" width="48%" alt="Mapping result preview" />
+</p>
 
-Please choose a language:
+<h1 align="center">Dense-ORB-SLAM3</h1>
 
-- [English documentation](README_EN.md)
-- [中文说明文档](README_CH.md)
+<p align="center">
+  <a href="README_EN.md">English</a> ·
+  <a href="README_CH.md">中文</a>
+</p>
 
 Both versions explain the repository layout, file purposes, common commands, and the relationship with the optional ROS 2 wrapper `orbslam3_dense_ros2`.
 

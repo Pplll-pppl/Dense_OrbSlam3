@@ -1,6 +1,14 @@
-# Dense-ORB-SLAM3
+<p align="center">
+  <img src="docs/assets/demo_dense_mapping_09s_12s.gif" width="48%" alt="Dense mapping preview" />
+  <img src="docs/assets/demo_mapping_result_19s_24s.gif" width="48%" alt="Mapping result preview" />
+</p>
 
-[English](README_EN.md) | [中文](README_CH.md)
+<h1 align="center">Dense-ORB-SLAM3</h1>
+
+<p align="center">
+  <a href="README_EN.md">English</a> ·
+  <a href="README_CH.md">中文</a>
+</p>
 
 This repository is a modified version of [ORB_SLAM3](https://github.com/UZ-SLAMLab/ORB_SLAM3). It builds the ORB-SLAM3 core library, dense RGB-D mapping examples, camera configuration files, calibration utilities, and point-cloud tools.
 
